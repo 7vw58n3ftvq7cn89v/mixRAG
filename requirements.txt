@@ -1,3 +1,7 @@
 hnswlib=0.8.0
 numpy
 langchain
+openai 
+python-dotenv
+langchain-community
+langchain-experimental
