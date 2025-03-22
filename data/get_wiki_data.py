@@ -319,24 +319,43 @@ class WikiDataLoader:
     def __init__(self):
         self.wikipage_url = "https://en.wikipedia.org/wiki/{}"
         self.wikidata_url = "https://www.wikidata.org/wiki/{}" # 使用qid
-        self.data_path = "wikidata/"
+        self.data_path = "wikidata/{}"
+        self.infobox_path = "wikidata/{}/infoboxes.json"
+        self.table_path = "wikidata/{}/tables.jsonl"
+        self.text_path = "wikidata/{}/text.txt"
 
-        # TABLE_SAVE_PATH = "wikidata/tables.jsonl"
-        # INFOBOX_SAVE_PATH = "wikidata/infoboxes.json"
-    
-    def load_wiki_page(self,qid:str):
-        url = self.wikipage_url.format(self.qid_to_entity_name(qid))
-        return self.load(url)
-    
-    def load_tables(self,qid:str):
-        table_path = os.path.join(self.data_path, qid, "tables.jsonl")
-        if os.path.exists(table_path):
-            with open(table_path, "r", encoding="utf-8") as f:
-                tables = json.load(f)
-            return tables
-        else:
-            # 解析wikipage
-            return None
+    def load_tables(self, qid:str, url=None, save:bool=True)->tuple[list, list]:
+        """
+        主函数，从qid获取infobox和table
+        """
+        infoboxes = []
+        wikitables = []
+        entity_name = self.qid_to_entity_name(qid)
+        # 如果本地存在文件，直接读取
+        if os.path.exists(self.data_path.format(qid)):
+            with open(self.infobox_path.format(qid), "r", encoding="utf-8") as f:
+                infoboxes = json.load(f)
+            with open(self.table_path.format(qid), "r", encoding="utf-8") as f:
+                wikitables = json.load(f)
+            return infoboxes, wikitables
+        
+        # 如果本地不存在文件，则解析wikipage
+        if url is None:
+            url = self.wikipage_url.format(entity_name)
+
+        response = requests.get(url)
+        soup = BeautifulSoup(response.content, "html.parser")
+        tables_soup = soup.find_all("table")
+
+        for i,table_soup in enumerate(tables_soup):
+            if self.is_infobox(table_soup):
+                info_dict = self.parse_infobox(qid,table_soup, save=save)
+                infoboxes.append(info_dict)
+            else:
+                caption, headers, rows = self.parse_wikitable(table_soup)
+                table_dict = self.wikitable_to_json(qid, f"{i}_{caption}", headers, rows, save=save)
+                wikitables.append(table_dict)
+        return infoboxes, wikitables
     
     def qid_to_entity_name(self,qid):
         response = requests.get(f"https://www.wikidata.org/wiki/{qid}")
@@ -366,11 +385,117 @@ class WikiDataLoader:
             return name
         
         return None
+    
+    def parse_wikitable(self, table:BeautifulSoup):
+        """html中提取表格元素"""
+        # 获取caption
+        caption = table.find('caption')
+        if caption:
+            caption_text = caption.text.strip()
+        else:
+            caption_text = ""
+        
+        # 获取表头，第一行tr
+        headers = [th.text.strip() for th in table.find('tr').find_all('th')]
+
+        # 获取数据行
+        rows = []
+        for tr in table.find_all('tr')[1:]:  # 跳过表头行
+            row = []
+            for td in tr.find_all('td'):
+                # 处理可能的链接
+                if td.find('a'):
+                    cell_value = td.find('a').text.strip()
+                else:
+                    cell_value = td.text.strip()
+                row.append(cell_value)
+            if row:  # 确保行不为空
+                rows.append(row)
+        
+        return caption_text, headers, rows
+
+    def wikitable_to_json(self,qid:str,caption:str, headers:list[str], rows:list[list[str]], save:bool=True):
+        """把table保存为json格式"""
+        save_path = self.table_path.format(qid)
+        table_dict = {
+            "table_caption": caption,
+            "table_headers": headers,
+            "table_text": [headers] + rows
+        }
+
+        if save:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            with open(save_path, "a", encoding="utf-8") as f:
+                json.dump(table_dict, f, ensure_ascii=False, indent=2)
+        return table_dict
+
+    def is_infobox(self, table:BeautifulSoup):
+        """判断是否是infobox"""
+        return table.name == 'table' and table.get('class') == ['infobox']
+
+    def parse_infobox(self,qid:str,table:BeautifulSoup, save:bool=True):
+        """解析维基百科的infobox表格"""
+        save_path = self.infobox_path.format(qid)
+        info_dict = {}
+        
+        # 获取标题
+        caption = table.find('caption', class_='infobox-title')
+        if caption:
+            info_dict['title'] = caption.text.strip()
+        
+        # 遍历所有行
+        for row in table.find_all('tr'):
+            # 获取标签（表头）
+            label = row.find('th', class_='infobox-label')
+            # 获取数据
+            data = row.find('td', class_='infobox-data')
+            
+            # 处理子标题行
+            header = row.find('th', class_='infobox-header')
+            if header:
+                current_section = header.text.strip()
+                info_dict[current_section] = {}
+                continue
+                
+            if label and data:
+                label_text = label.text.strip()
+                
+                # 处理数据单元格中的特殊情况
+                data_text = ""
+                
+                # 处理列表
+                if data.find('ul'):
+                    items = [li.text.strip() for li in data.find_all('li')]
+                    data_text = items
+                else:
+                    # 处理普通文本，移除引用标记
+                    data_text = ' '.join(
+                        text.strip() for text in data.stripped_strings 
+                        if not text.startswith('[') and not text.endswith(']')
+                    )
+                
+                # 如果在某个section下，则添加到对应的字典中
+                if 'current_section' in locals():
+                    info_dict[current_section][label_text] = data_text
+                else:
+                    info_dict[label_text] = data_text
+                    
+        if save:
+            os.makedirs(os.path.dirname(save_path), exist_ok=True)
+            with open(save_path, "a", encoding="utf-8") as f:
+                json.dump(info_dict, f, ensure_ascii=False, indent=2)
+        
+        return info_dict
+
 
 def main():
     # 示例使用
     url = "https://en.wikipedia.org/wiki/The_World%27s_Billionaires"
-    infoboxes, wikitables = get_tables_from_page(url)
+    qid = "Q54935007"
+    dataloader = WikiDataLoader()
+    infoboxes, wikitables = dataloader.load_tables(qid)
+    print(infoboxes)
+    print(wikitables)
     
     # 打印每个表格的基本信息
     # for i, df in enumerate(dataframes):
