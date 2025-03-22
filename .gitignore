@@ -1,3 +1,6 @@
 
 __pycache__/
 .env
+
+data/wikidata/
+data/CompMix-IR/

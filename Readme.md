@@ -18,6 +18,12 @@ data extraction：
 infobox
 wikitable
 
+### WikiDataLoader
+- 主要功能：基于qid，给出entity name、infobox、wikitable、text
+  - 提供从WikipediaPages解析text、infobox、wikitable的接口
+  - 提供从qid获取entity name的接口
+  - 提供从qid获取infobox、wikitable、text的接口
+
 
 
 

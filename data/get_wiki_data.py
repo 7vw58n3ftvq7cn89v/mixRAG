@@ -20,8 +20,8 @@ EMBEDDING_MODEL_MAX_TOKENS = 8192
 WIKI_URL = "https://en.wikipedia.org/wiki/{}"
 WIKI_URL_QID = "https://www.wikidata.org/wiki/{}"
 
-TABLE_SAVE_PATH = "tables.jsonl"
-INFOBOX_SAVE_PATH = "infoboxes.json"
+TABLE_SAVE_PATH = "wikidata/tables.jsonl"
+INFOBOX_SAVE_PATH = "wikidata/infoboxes.json"
 
 @wrap_embedding_func_with_attrs(
     embedding_dim=EMBEDDING_MODEL_DIM,
@@ -189,7 +189,7 @@ def is_infobox(table:BeautifulSoup):
     """判断是否是infobox"""
     return table.name == 'table' and table.get('class') == ['infobox']
 
-def parse_infobox(table:BeautifulSoup, save_path:str=INFOBOX_SAVE_PATH):
+def parse_infobox(table:BeautifulSoup, save_path:str=INFOBOX_SAVE_PATH, save:bool=True):
     """解析维基百科的infobox表格"""
     info_dict = {}
     
@@ -235,8 +235,9 @@ def parse_infobox(table:BeautifulSoup, save_path:str=INFOBOX_SAVE_PATH):
             else:
                 info_dict[label_text] = data_text
                 
-    with open(save_path, "a", encoding="utf-8") as f:
-        json.dump(info_dict, f, ensure_ascii=False, indent=2)
+    if save:
+        with open(save_path, "a", encoding="utf-8") as f:
+            json.dump(info_dict, f, ensure_ascii=False, indent=2)
     
     return info_dict
 
@@ -277,7 +278,7 @@ def wikitable_to_json(caption:str, headers:list[str], rows:list[list[str]], save
     table_dict = {
         "table_caption": caption,
         "table_headers": headers,
-        "table_text": headers + rows
+        "table_text": [headers] + rows
     }
 
     if save:
@@ -313,6 +314,58 @@ def parse_wikitable(table:BeautifulSoup):
             rows.append(row)
     
     return caption_text, headers, rows
+
+class WikiDataLoader:
+    def __init__(self):
+        self.wikipage_url = "https://en.wikipedia.org/wiki/{}"
+        self.wikidata_url = "https://www.wikidata.org/wiki/{}" # 使用qid
+        self.data_path = "wikidata/"
+
+        # TABLE_SAVE_PATH = "wikidata/tables.jsonl"
+        # INFOBOX_SAVE_PATH = "wikidata/infoboxes.json"
+    
+    def load_wiki_page(self,qid:str):
+        url = self.wikipage_url.format(self.qid_to_entity_name(qid))
+        return self.load(url)
+    
+    def load_tables(self,qid:str):
+        table_path = os.path.join(self.data_path, qid, "tables.jsonl")
+        if os.path.exists(table_path):
+            with open(table_path, "r", encoding="utf-8") as f:
+                tables = json.load(f)
+            return tables
+        else:
+            # 解析wikipage
+            return None
+    
+    def qid_to_entity_name(self,qid):
+        response = requests.get(f"https://www.wikidata.org/wiki/{qid}")
+        if response.status_code != 200:
+            return None
+            
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # 方法1：从页面标题获取
+        title = soup.find('title')
+        if title:
+            # 移除 "- Wikidata" 后缀
+            name = title.text.replace(' - Wikidata', '').strip()
+            return name
+        
+        # 方法2：从meta标签获取
+        meta_title = soup.find('meta', property='og:title')
+        if meta_title:
+            return meta_title.get('content')
+            
+        # 方法3：从meta description获取
+        meta_desc = soup.find('meta', property='og:description')
+        if meta_desc:
+            desc = meta_desc.get('content')
+            # 通常描述格式为 "xxx (1946-2020)"，我们只要名字部分
+            name = desc.split('(')[0].strip()
+            return name
+        
+        return None
 
 def main():
     # 示例使用
