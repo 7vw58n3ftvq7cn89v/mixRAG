@@ -4,3 +4,5 @@ __pycache__/
 
 data/wikidata/
 data/CompMix-IR/
+data/ktdata/
+data/CompMix/
