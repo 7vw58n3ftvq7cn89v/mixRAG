@@ -356,7 +356,7 @@ class WikiDataLoader:
         
         return caption, '\n'.join(description_texts)
     
-    def get_wiki_text(self,qid:str, entity_name:str=None):
+    def get_wiki_text(self,qid:str=None, entity_name:str=None):
         if not entity_name:
             entity_name = self.qid_to_entity_name(qid)
         
@@ -367,10 +367,10 @@ class WikiDataLoader:
                 'format': 'json',
                 'titles': entity_name,
                 'prop': 'extracts',
-                'exintro': False,# 提取全部页面
+                # 'exintro': True,# 提取全部页面
                 'explaintext': True,
             }).json()
-            
+        print(response)
         page = next(iter(response['query']['pages'].values()))
         return page['extract']
 
@@ -380,9 +380,9 @@ def main():
     qid = "Q54935007"
     dataloader = WikiDataLoader()
     # dataloader.download_tables(qid, url)
-    infoboxes, wikitables = dataloader.load_tables(qid)
-    print(len(infoboxes))
-    print(len(wikitables))
+    # infoboxes, wikitables = dataloader.load_tables(qid)
+    text = dataloader.get_wiki_text(entity_name="The_World's_Billionaires")
+    print(text)
     
     # 打印每个表格的基本信息
     # for i, df in enumerate(dataframes):
