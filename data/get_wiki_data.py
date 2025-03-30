@@ -86,28 +86,40 @@ class WikiDataLoader:
         self.data_path = "wikidata/{}"
         self.infobox_path = "wikidata/{}/infoboxes.json"
         self.table_path = "wikidata/{}/tables.json"
+        self.table_path_from_pd = "wikidata/{}/tables_from_pd.json"
         self.text_path = "wikidata/{}/text.txt"
         self.qid_entity_path = "wikidata/qid_entity.csv"
         os.makedirs("wikidata", exist_ok=True)
+    
+    def load_wikidata(self, qid:str, url=None)->tuple[list, list]:
+        """
+        主函数，从qid获取infobox、table及其相关描述文本
+        """
+        text = self.get_wiki_text(qid)
+        infoboxes, wikitables = self.load_tables(qid)
+        return text, infoboxes, wikitables
 
-    def load_tables(self, qid:str, url=None)->tuple[list, list]:
+    def load_tables(self, qid:str, url=None,from_pd:bool=True)->tuple[list, list]:
         """
         主函数，从qid获取infobox、table及其相关描述文本
         """
         infoboxes = []
         wikitables = []
         entity_name = self.qid_to_entity_name(qid)
+
+        table_path = self.table_path_from_pd.format(qid) if from_pd else self.table_path.format(qid)
+        infobox_path = self.infobox_path.format(qid)
         
         # 如果本地存在文件，直接读取
-        if os.path.exists(self.data_path.format(qid)):
+        if os.path.exists(infobox_path) and os.path.exists(table_path):
             try:
-                with open(self.infobox_path.format(qid), "r", encoding="utf-8") as f:
+                with open(infobox_path, "r", encoding="utf-8") as f:
                     infoboxes = json.load(f)
             except Exception as e:
                 print(f"Error loading infoboxes for qid: {qid}, error: {e}")
                 infoboxes = []
             try:
-                with open(self.table_path.format(qid), "r", encoding="utf-8") as f:
+                with open(table_path, "r", encoding="utf-8") as f:
                     wikitables = json.load(f)
             except Exception as e:
                 print(f"Error loading wikitables for qid: {qid}, error: {e}")
@@ -130,15 +142,44 @@ class WikiDataLoader:
         response = requests.get(url)
         soup = BeautifulSoup(response.content, "html.parser")
         
+        tables_soup = soup.find_all("table")
+
+        wikitables_indices = [i for i, table in enumerate(tables_soup) if 'wikitable' in ' '.join(table.get('class', ''))]
+        all_tables_df = self.load_tables_by_pd(qid)
+        # wikitables_df = all_tables_df[wikitables_indices]
+
+        wikitables_from_pd = []
+        for i,table_idx in enumerate(wikitables_indices):
+            wikitable_df = all_tables_df[table_idx]
+            table_soup = tables_soup[table_idx]
+            headers = wikitable_df.columns.tolist()
+            rows = wikitable_df.values.tolist()
+            header_caption, table_description = self.get_table_description(table_soup)
+            caption, _, _ = self.parse_wikitable(table_soup)
+            if not caption:
+                # 如果caption为空，则使用标题作为caption
+                caption = header_caption
+            table_dict = self.wikitable_to_json(
+                qid, 
+                f"{i}_{caption}", 
+                headers, 
+                rows, 
+                description=table_description
+            )
+            wikitables_from_pd.append(table_dict)
+        with open(f"wikidata/{qid}/tables_from_pd.json", "w", encoding="utf-8") as f:
+            json.dump(wikitables_from_pd, f, ensure_ascii=False, indent=2)
+
         # 找到所有表格
-        tables_soup = soup.find_all("table", class_="wikitable")
-        infobox_soup = soup.find_all("table", class_="infobox")
+        wikitables_soup = soup.find_all("table", class_="wikitable")
+        # infobox_soup = soup.find_all("table", class_=lambda x: x and "infobox" in x.lower())
+        infobox_soup = soup.find_all("table", class_="infobox") 
 
         for i, infobox_soup in enumerate(infobox_soup):
             info_dict = self.parse_infobox(qid, infobox_soup)
             infoboxes.append(info_dict)
         
-        for i, table_soup in enumerate(tables_soup):
+        for i, table_soup in enumerate(wikitables_soup):
             # 获取表格的描述文本
             header_caption, table_description = self.get_table_description(table_soup)
             caption, headers, rows = self.parse_wikitable(table_soup)
@@ -162,6 +203,14 @@ class WikiDataLoader:
             json.dump(wikitables, f, ensure_ascii=False, indent=2)
         return True
     
+    def load_tables_by_pd(self, qid:str):
+        try:
+            tables = pd.read_html(self.get_url_from_qid(qid))
+            return tables
+        except Exception as e:
+            print(f"No tables for qid: {qid}, error: {e}")
+            return []
+
     def get_url_from_qid(self,qid):
         entity_name = self.qid_to_entity_name(qid)
         return self.wikipage_url.format(entity_name)
@@ -223,7 +272,7 @@ class WikiDataLoader:
         rows = []
         for tr in table.find_all('tr')[1:]:  # 跳过表头行
             row = []
-            for td in tr.find_all('td'):
+            for td in tr.find_all(['td', 'th']):
                 # 递归提取所有文本内容
                 def extract_text(element):
                     if isinstance(element, str):
@@ -246,9 +295,9 @@ class WikiDataLoader:
     def wikitable_to_json(self, qid:str, caption:str, headers:list[str], rows:list[list[str]], 
                          description:str="", save:bool=False):
         """把table保存为json格式"""
-        save_path = self.table_path.format(qid)
         
         table_dict = {
+            "qid": qid,
             "table_caption": caption,
             "table_headers": headers,
             "table_text": [headers] + rows,
@@ -357,6 +406,15 @@ class WikiDataLoader:
         return caption, '\n'.join(description_texts)
     
     def get_wiki_text(self,qid:str=None, entity_name:str=None):
+        if os.path.exists(self.text_path.format(qid)):
+            with open(self.text_path.format(qid), "r", encoding="utf-8") as f:
+                return f.read()
+        else:
+            return self.download_wiki_text(qid, entity_name, save=True)
+        
+    
+    def download_wiki_text(self, qid:str=None, entity_name:str=None, save=True):
+        # 获取wiki文本
         if not entity_name:
             entity_name = self.qid_to_entity_name(qid)
         
@@ -367,30 +425,40 @@ class WikiDataLoader:
                 'format': 'json',
                 'titles': entity_name,
                 'prop': 'extracts',
-                # 'exintro': True,# 提取全部页面
+                # 'exintro': True,# 提取第一节
                 'explaintext': True,
             }).json()
-        print(response)
         page = next(iter(response['query']['pages'].values()))
-        return page['extract']
+        if 'extract' in page:
+            wiki_text = page['extract']
+        else:
+            print(f"{entity_name} 没有提取到文本,page: {page}")
+            wiki_text = ""
+        
+        # 确保目标文件夹存在
+        os.makedirs(self.data_path.format(qid), exist_ok=True)
+        
+        if save:
+            # 保存文本到文件
+            with open(self.text_path.format(qid), "w", encoding="utf-8") as f:
+                f.write(wiki_text)
+        
+        return wiki_text
+    
+        
 
 def main():
     # 示例使用
-    url = "https://en.wikipedia.org/wiki/The_World%27s_Billionaires"
-    qid = "Q54935007"
     dataloader = WikiDataLoader()
-    # dataloader.download_tables(qid, url)
-    # infoboxes, wikitables = dataloader.load_tables(qid)
-    text = dataloader.get_wiki_text(entity_name="The_World's_Billionaires")
-    print(text)
+    # url = "https://en.wikipedia.org/wiki/The_World%27s_Billionaires"
+    # qid = "Q54935007"
+    # # dataloader.download_tables(qid, url)
+    # # infoboxes, wikitables = dataloader.load_tables(qid)
+    # text = dataloader.get_wiki_text(qid=qid)
+    # print(text)
+    qid = "Q64584978"
+    dataloader.download_tables(qid)
     
-    # 打印每个表格的基本信息
-    # for i, df in enumerate(dataframes):
-    #     print(f"\n表格 {i+1} 的信息:")
-    #     print(f"形状: {df.shape}")
-    #     print(f"列名: {df.columns.tolist()}")
-    #     print("\n前几行数据:")
-    #     print(df.head())
 
 if __name__ == "__main__":
     main()
