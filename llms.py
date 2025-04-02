@@ -2,6 +2,7 @@ import requests
 import os
 from dotenv import load_dotenv
 from openai import OpenAI
+from langchain.chat_models import init_chat_model
 
 load_dotenv()
 
@@ -34,6 +35,7 @@ class SiliconLLM:
         token_counts = response.usage
 
         return response.text.choices[0].message.content
+
 
 if __name__ == "__main__":
     llm = SiliconLLM(api_key=os.getenv("SILICONFLOW_API_KEY"), model="deepseek-ai/DeepSeek-V2.5")

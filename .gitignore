@@ -6,3 +6,5 @@ data/wikidata/
 data/CompMix-IR/
 data/ktdata/
 data/CompMix/
+
+local_models/

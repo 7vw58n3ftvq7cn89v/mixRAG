@@ -83,13 +83,14 @@ class WikiDataLoader:
     def __init__(self):
         self.wikipage_url = "https://en.wikipedia.org/wiki/{}"
         self.wikidata_url = "https://www.wikidata.org/wiki/{}" # 使用qid
-        self.data_path = "wikidata/{}"
-        self.infobox_path = "wikidata/{}/infoboxes.json"
-        self.table_path = "wikidata/{}/tables.json"
-        self.table_path_from_pd = "wikidata/{}/tables_from_pd.json"
-        self.text_path = "wikidata/{}/text.txt"
-        self.qid_entity_path = "wikidata/qid_entity.csv"
-        os.makedirs("wikidata", exist_ok=True)
+        self.local_wikidata_path = "data/wikidata/"
+        self.data_path = "data/wikidata/{}"
+        self.infobox_path = "data/wikidata/{}/infoboxes.json"
+        self.table_path = "data/wikidata/{}/tables.json"
+        self.table_path_from_pd = "data/wikidata/{}/tables_from_pd.json"
+        self.text_path = "data/wikidata/{}/text.txt"
+        self.qid_entity_path = "data/wikidata/qid_entity.csv"
+        os.makedirs("data/wikidata", exist_ok=True)
     
     def load_wikidata(self, qid:str, url=None)->tuple[list, list]:
         """
@@ -134,6 +135,7 @@ class WikiDataLoader:
     def download_tables(self, qid:str, url=None):
         infoboxes = []
         wikitables = []
+        os.makedirs(self.data_path.format(qid), exist_ok=True)
         entity_name = self.qid_to_entity_name(qid)
 
         if url is None:
@@ -160,14 +162,15 @@ class WikiDataLoader:
                 # 如果caption为空，则使用标题作为caption
                 caption = header_caption
             table_dict = self.wikitable_to_json(
-                qid, 
-                f"{i}_{caption}", 
-                headers, 
-                rows, 
+                table_id=i,
+                qid=qid, 
+                caption=f"{i}_{caption}", 
+                headers=headers, 
+                rows=rows, 
                 description=table_description
             )
             wikitables_from_pd.append(table_dict)
-        with open(f"wikidata/{qid}/tables_from_pd.json", "w", encoding="utf-8") as f:
+        with open(os.path.join(self.local_wikidata_path,f"{qid}/tables_from_pd.json"), "w", encoding="utf-8") as f:
             json.dump(wikitables_from_pd, f, ensure_ascii=False, indent=2)
 
         # 找到所有表格
@@ -187,15 +190,15 @@ class WikiDataLoader:
                 # 如果caption为空，则使用标题作为caption
                 caption = header_caption
             table_dict = self.wikitable_to_json(
-                qid, 
-                f"{i}_{caption}", 
-                headers, 
-                rows, 
+                table_id=i,
+                qid=qid, 
+                caption=f"{i}_{caption}", 
+                headers=headers, 
+                rows=rows, 
                 description=table_description
             )
             wikitables.append(table_dict)
         
-        os.makedirs(self.data_path.format(qid), exist_ok=True)
         # 保存到本地
         with open(self.infobox_path.format(qid), "w", encoding="utf-8") as f:
             json.dump(infoboxes, f, ensure_ascii=False, indent=2)
@@ -292,11 +295,12 @@ class WikiDataLoader:
         
         return caption_text, headers, rows
 
-    def wikitable_to_json(self, qid:str, caption:str, headers:list[str], rows:list[list[str]], 
+    def wikitable_to_json(self, table_id:int, qid:str, caption:str, headers:list[str], rows:list[list[str]], 
                          description:str="", save:bool=False):
         """把table保存为json格式"""
         
         table_dict = {
+            "table_id": table_id,
             "qid": qid,
             "table_caption": caption,
             "table_headers": headers,
@@ -445,7 +449,15 @@ class WikiDataLoader:
         
         return wiki_text
     
-        
+    def load_table_info(self, qid:str, table_id:str):
+        table_path = self.table_path_from_pd.format(qid)
+        tables = json.load(open(table_path))
+        table = tables[table_id]
+        table_info = "table_caption: " + table['table_caption'] \
+            + "\n" + "table_headers: " + str(table['table_headers']) 
+        if table['table_description']:
+            table_info += "\n" + "table_description: " + table['table_description']
+        return table_info
 
 def main():
     # 示例使用
