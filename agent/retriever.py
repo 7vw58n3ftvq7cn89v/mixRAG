@@ -101,7 +101,7 @@ class Retriever:
     def get_retriever(self, data_type, table_id, df):
         docs = None
         if self.mode == 'embed' or self.mode == 'hybrid':
-            db_dir = os.path.join(self.db_dir, f'{data_type}_db_{self.max_encode_cell}_' + table_id)
+            db_dir = os.path.join(self.db_dir, f'{data_type}_db_{self.max_encode_cell}_' + str(table_id))
             if os.path.exists(db_dir):
                 if self.verbose:
                     print(f'Load {data_type} database from {db_dir}')

@@ -47,10 +47,10 @@ data type:
 - [ ] 用tablerag回答100个wiki问题
   - [x] 整理QA对，提取相应页面的表格
     - [x] 解析表格：解析页面得到wikitable和infobox索引，用pd.read_html获取表格，分别存储两类表格    
-  - [ ] 用tablerag回答
+  - [x] 用tablerag回答
     - [x] 搭建schemaDB，每个entity的所有tables
     - [x] Table retrieval的方法:检索schemaDB，判断表格是否可以回答问题
-    - [ ] answer with table
+    - [x] answer with table
 
 
 如何基于Question找到相关表格？
@@ -68,3 +68,4 @@ data type:
 2025-03-27: 提取page的text数据
 2025-03-29：下载实验数据
 2025-03-30: 使用pd解析HTML页面，得到表格和infobox，解决表格不规范的问题
+2025-04-02: 实现schema retrieval和LLM judge流程，使用TableRAGAgent回答wiki question

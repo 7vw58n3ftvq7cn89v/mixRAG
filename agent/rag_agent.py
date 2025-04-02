@@ -153,7 +153,7 @@ class TableRAGAgent(TableAgent):
 
         return result
     
-    def answer_question(self, data:dict):
+    def answer_question(self, data:dict, log:bool=False):
         """根据表格内容回答问题"""
 
         # Read table
@@ -184,10 +184,11 @@ class TableRAGAgent(TableAgent):
         answer, n_iter, solution = self.solver_loop(df, prompt)
 
         # 记录推理过程
-        log_path = os.path.join(self.log_dir, 'log', f'{data["table_id"]}.txt')
-        os.makedirs(os.path.dirname(log_path), exist_ok=True)
-        with open(log_path, 'w') as f:
-            f.write(prompt + solution)
+        if log:
+            log_path = os.path.join(self.log_dir, 'log', f'{data["table_id"]}.txt')
+            os.makedirs(os.path.dirname(log_path), exist_ok=True)
+            with open(log_path, 'w') as f:
+                f.write(prompt + solution)
 
         return answer
         

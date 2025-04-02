@@ -190,7 +190,7 @@ class WikiDataLoader:
                 # 如果caption为空，则使用标题作为caption
                 caption = header_caption
             table_dict = self.wikitable_to_json(
-                table_id=i,
+                table_id=f"{qid}_{i}",
                 qid=qid, 
                 caption=f"{i}_{caption}", 
                 headers=headers, 
@@ -213,7 +213,12 @@ class WikiDataLoader:
         except Exception as e:
             print(f"No tables for qid: {qid}, error: {e}")
             return []
-
+    
+    def load_single_table(self, qid:str, table_id:str):
+        table_path = self.table_path.format(qid)
+        tables = json.load(open(table_path))
+        return tables[table_id]
+    
     def get_url_from_qid(self,qid):
         entity_name = self.qid_to_entity_name(qid)
         return self.wikipage_url.format(entity_name)

@@ -111,7 +111,11 @@ from table_retriever import Retriever
 from prompts import get_prompt
 from WikidataLoader import WikiDataLoader
 from agent.model import Model
+from agent import TableRAGAgent
+from loguru import logger
 import re
+
+logger.add('logs/wiki_agent.log')
 
 class WikiAgent:
     def __init__(
@@ -124,7 +128,7 @@ class WikiAgent:
         self.retriever = Retriever()
         self.dataloader = WikiDataLoader()
 
-    def find_suitable_table(self,qid:str, query:str):
+    def find_suitable_table(self,qid:str, query:str) -> Optional[dict]:
         if not os.path.exists(f'data/wikidata/{qid}'):
             self.dataloader.download_tables(qid)
         # 1.解析关键词
@@ -140,12 +144,13 @@ class WikiAgent:
                     tables[table['table_id']] += 1
         # 3.对每个table，按统计个数高到低顺序判断是否可以回答问题
         sorted_tables = sorted(tables.items(), key=lambda x: x[1], reverse=True)
-        print(f"found tables:{len(tables)}, sorted_tables: {sorted_tables}")
+        logger.info(f"found tables:{len(tables)}, sorted_tables: {sorted_tables}")
         for table_id, count in sorted_tables:
             # 判断是否可以回答问题
             judgement = self.judge_table(qid, table_id, query)
             if judgement:
-                return table['table_id']
+                final_table = self.dataloader.load_single_table(qid, table_id)
+                return final_table
         return None
     
     def extract_schema(self, query:str):
@@ -178,7 +183,7 @@ class WikiAgent:
         answer_match = re.search(answer_pattern, response, re.DOTALL)
         answer = answer_match.group(1).strip() if answer_match else None
 
-        print(f"table_id: {table_id}, thought: {thought}, answer: {answer}")
+        logger.debug(f"table_id: {table_id}, thought: {thought}, answer: {answer}")
         
         # return {'thought':thought, 'answer':answer}
         if 'Yes' in answer:
@@ -186,12 +191,54 @@ class WikiAgent:
         return False
     
 
+def tableRAG_answer(
+        # question:str,
+        # table_caption:str,
+        table:dict,
+        model_name = 'deepseek-ai/DeepSeek-V2.5',
+        provider = 'siliconflow',
+        retrieve_mode = 'embed',
+        embed_model_name = 'local_models/m3e-base',
+        log_dir = 'output/qa_test',
+        db_dir = 'db/',
+        top_k = 5,
+        max_encode_cell = 1000,
+        verbose = False,
+):
+    """主函数：初始化RAG agent并回答问题"""
+    # 创建必要的目录
+    os.makedirs(log_dir, exist_ok=True)
+    
+    # 准备agent参数
+    task = 'qa'  # 设置为问答任务
+    agent_args = {
+        'model_name': model_name,
+        'provider': provider,
+        'retrieve_mode': retrieve_mode,
+        'embed_model_name': embed_model_name,
+        'task': task,
+        'agent_type': 'TableRAG',
+        'top_k': top_k,
+        'max_encode_cell': max_encode_cell,
+        'log_dir': log_dir,
+        'db_dir': db_dir,
+        'verbose': verbose
+    }
+    
+    # 初始化agent并回答问题
+    agent = TableRAGAgent(**agent_args)
+    answer = agent.answer_question(table)
+        
+    return answer
 
 if __name__ == "__main__":
     agent = WikiAgent(model_name=os.getenv('DS_MODEL_NAME'))
     query = "Who won the Best Actor award in the Los Angeles Film Critics Association Awards for the movie 'Taxi Driver'?"
     qid = 'Q47221'
-    agent.find_suitable_table(qid=qid, query=query)
+    table = agent.find_suitable_table(qid=qid, query=query)
+    table['question'] = query
+    answer = tableRAG_answer(table)
+    print(answer)
 
 """
 1057,
