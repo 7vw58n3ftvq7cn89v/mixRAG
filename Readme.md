@@ -55,7 +55,7 @@ data type:
 
 如何基于Question找到相关表格？
 - schemaDB + LLM判断
-	- schemaDB，对每个table的每个列编码
+	- schemaDB，对每个table的每个column name进行编码
 	- LLM依据表格元数据，逐个判断是否可以回答问题（LLM需要注意判断表格能不能回答问题）
 - table embeddings，合适的表格编码方法？ #wait 
 
@@ -69,3 +69,4 @@ data type:
 2025-03-29：下载实验数据
 2025-03-30: 使用pd解析HTML页面，得到表格和infobox，解决表格不规范的问题
 2025-04-02: 实现schema retrieval和LLM judge流程，使用TableRAGAgent回答wiki question
+2025-04-02: 实现wiki_qa，批量回答问题

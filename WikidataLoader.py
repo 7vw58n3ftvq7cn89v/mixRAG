@@ -23,24 +23,6 @@ WIKI_URL_QID = "https://www.wikidata.org/wiki/{}"
 TABLE_SAVE_PATH = "wikidata/tables.jsonl"
 INFOBOX_SAVE_PATH = "wikidata/infoboxes.json"
 
-# https://en.wikipedia.org/wiki/Python_(programming_language)
-# https://www.mediawiki.org/wiki/API:Main_page
-
-# 1. Get a plain text representation of either the entire page or the page "extract" straight from the API with the extracts prop
-
-# Note that this approach only works on MediaWiki sites with the TextExtracts extension. This notably includes Wikipedia, but not some smaller Mediawiki sites like, say, http://www.wikia.com/
-
-# You want to hit a URL like
-
-# https://en.wikipedia.org/w/api.php?action=query&format=json&titles=Bla_Bla_Bla&prop=extracts&exintro&explaintext
-
-# Breaking that down, we've got the following parameters in there (documented at https://www.mediawiki.org/wiki/Extension:TextExtracts#query+extracts):
-
-# action=query, format=json, and title=Bla_Bla_Bla are all standard MediaWiki API parameters
-# prop=extracts makes us use the TextExtracts extension
-# exintro limits the response to content before the first section heading
-# explaintext makes the extract in the response be plain text instead of HTML
-# Then parse the JSON response and extract the extract:
 
 def get_wiki_text(entity_name):
     response = requests.get(
@@ -133,6 +115,7 @@ class WikiDataLoader:
             return self.load_tables(qid, url)
     
     def download_tables(self, qid:str, url=None):
+        """下载infobox和wikitable，包括从pd中下载"""
         infoboxes = []
         wikitables = []
         os.makedirs(self.data_path.format(qid), exist_ok=True)
@@ -146,32 +129,36 @@ class WikiDataLoader:
         
         tables_soup = soup.find_all("table")
 
-        wikitables_indices = [i for i, table in enumerate(tables_soup) if 'wikitable' in ' '.join(table.get('class', ''))]
-        all_tables_df = self.load_tables_by_pd(qid)
-        # wikitables_df = all_tables_df[wikitables_indices]
+        try:
+            wikitables_indices = [i for i, table in enumerate(tables_soup) if 'wikitable' in ' '.join(table.get('class', ''))]
+            all_tables_df = self.load_tables_by_pd(qid)
+            # wikitables_df = all_tables_df[wikitables_indices]
 
-        wikitables_from_pd = []
-        for i,table_idx in enumerate(wikitables_indices):
-            wikitable_df = all_tables_df[table_idx]
-            table_soup = tables_soup[table_idx]
-            headers = wikitable_df.columns.tolist()
-            rows = wikitable_df.values.tolist()
-            header_caption, table_description = self.get_table_description(table_soup)
-            caption, _, _ = self.parse_wikitable(table_soup)
-            if not caption:
-                # 如果caption为空，则使用标题作为caption
-                caption = header_caption
-            table_dict = self.wikitable_to_json(
-                table_id=i,
-                qid=qid, 
-                caption=f"{i}_{caption}", 
-                headers=headers, 
-                rows=rows, 
-                description=table_description
-            )
-            wikitables_from_pd.append(table_dict)
-        with open(os.path.join(self.local_wikidata_path,f"{qid}/tables_from_pd.json"), "w", encoding="utf-8") as f:
-            json.dump(wikitables_from_pd, f, ensure_ascii=False, indent=2)
+            wikitables_from_pd = []
+            for i,table_idx in enumerate(wikitables_indices):
+                wikitable_df = all_tables_df[table_idx]
+                table_soup = tables_soup[table_idx]
+                headers = wikitable_df.columns.tolist()
+                rows = wikitable_df.values.tolist()
+                header_caption, table_description = self.get_table_description(table_soup)
+                caption, _, _ = self.parse_wikitable(table_soup)
+                if not caption:
+                    # 如果caption为空，则使用标题作为caption
+                    caption = header_caption
+                table_dict = self.wikitable_to_json(
+                    table_id=f"{qid}_{i}",
+                    qid=qid, 
+                    caption=f"{i}_{caption}", 
+                    headers=headers, 
+                    rows=rows, 
+                    description=table_description
+                )
+                wikitables_from_pd.append(table_dict)
+            with open(os.path.join(self.local_wikidata_path,f"{qid}/tables_from_pd.json"), "w", encoding="utf-8") as f:
+                json.dump(wikitables_from_pd, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"Error downloading tables for qid: {qid}, error: {e}")
+            return False
 
         # 找到所有表格
         wikitables_soup = soup.find_all("table", class_="wikitable")
@@ -214,8 +201,8 @@ class WikiDataLoader:
             print(f"No tables for qid: {qid}, error: {e}")
             return []
     
-    def load_single_table(self, qid:str, table_id:str):
-        table_path = self.table_path.format(qid)
+    def load_single_table(self, qid:str, table_id:int):
+        table_path = self.table_path_from_pd.format(qid)
         tables = json.load(open(table_path))
         return tables[table_id]
     
@@ -454,7 +441,7 @@ class WikiDataLoader:
         
         return wiki_text
     
-    def load_table_info(self, qid:str, table_id:str):
+    def load_table_info(self, qid:str, table_id:int):
         table_path = self.table_path_from_pd.format(qid)
         tables = json.load(open(table_path))
         table = tables[table_id]

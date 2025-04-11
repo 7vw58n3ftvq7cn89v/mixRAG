@@ -8,3 +8,5 @@ data/ktdata/
 data/CompMix/
 
 local_models/
+db/
+logs/
