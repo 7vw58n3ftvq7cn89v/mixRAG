@@ -27,3 +27,15 @@ your analysis about the table and the question
 
 Now analyze the current case:
 '''
+
+direct_answer_prompt = '''
+Please answer the question based on the following table:
+{table_md}
+
+Question: {query}
+
+Strictly follow the given format to respond:
+Thought: you should always think about what to do
+Answer: the final answer to the question
+
+'''

@@ -1,5 +1,9 @@
 
+import sys
+import os
+
 from table_retriever import Retriever
+
 from prompts import get_prompt
 from WikidataLoader import WikiDataLoader
 from agent.model import Model
@@ -26,9 +30,9 @@ class WikiAgent:
 
     def find_suitable_table(self,qid:str, query:str) -> Optional[dict]:
         qid_path = f'data/wikidata/{qid}'
-        if not os.path.exists(qid_path):
-            self.dataloader.download_tables(qid)
         tables_path = os.path.join(qid_path, 'tables.json')
+        if not os.path.exists(qid_path) or not os.path.exists(tables_path):
+            self.dataloader.download_tables(qid)
         tables = json.load(open(tables_path))
         if not tables:
             return None
@@ -95,6 +99,16 @@ class WikiAgent:
         if 'Yes' in answer:
             return True
         return False
+
+    def direct_answer(self, table:dict):
+        """直接回答问题"""
+        question = table['question']
+        table_md = self.dataloader.table_to_md(table)
+        prompt = get_prompt(task='wiki', agent_type='Wikiagent', prompt_type='direct_answer_prompt', table_md=table_md, query=question)
+        print(f'direct_answer prompt: {prompt}')
+        answer = self.model.query(prompt)
+        print(f'direct_answer answer: {answer}')
+        return answer
     
 
 def tableRAG_answer(
@@ -146,8 +160,10 @@ def convert_to_json(s):
     s = re.sub(r":\s*'([^']*)'", r': "\1"', s)
     return s
 
+
 def wiki_qa(
         qa_path:str,
+        save_path:str,
         model_name = 'deepseek-ai/DeepSeek-V2.5',
         provider = 'siliconflow',
         retrieve_mode = 'embed',
@@ -176,8 +192,12 @@ def wiki_qa(
     wiki_agent = WikiAgent()
     rag_agent = TableRAGAgent(**agent_args)
     df = pd.read_csv(qa_path)
-    df['agent_answer'] = None
+    if 'agent_answer' not in df.columns:
+        df['agent_answer'] = None
     for i,row in df.iterrows():
+        if isinstance(row['agent_answer'], str) and row['agent_answer'] != 'error' and not row['agent_answer'].startswith('Thought:'):
+            logger.info(f"Round {i} already has answer,\nCurrent question: {row['question']}, agent_answer: {row['agent_answer']}")
+            continue
         question = row['question']
         logger.debug(f"Round {i}, Current question: {question}")
         entities = json.loads(convert_to_json(row['entities']))
@@ -187,9 +207,20 @@ def wiki_qa(
             table = wiki_agent.find_suitable_table(qid=qid, query=question)
             if table:
                 table['question'] = question
-                answer = rag_agent.answer_question(table)
+                try:
+                    answer = rag_agent.answer_question(table)
+                except Exception as e:
+                    logger.error(f"error answer question with tablerag: {e}")
+                    # answer = wiki_agent.direct_answer(table)
+                    answer = 'error'
                 logger.debug(f"question: {question}, \ncorrect answer: {row['answer_text']}, \nrag answer: {answer}")
                 df.at[i, 'agent_answer'] = answer
+                # row['agent_answer'] = answer
+            else:
+                logger.debug(f"no table found for qid: {qid}")
+                df.at[i, 'agent_answer'] = 'error'
+            df.to_csv(save_path, index=False)
+            
     df.to_csv(f'data/CompMix/tableqa_sample_with_answer.csv', index=False)
     return df
 
@@ -200,15 +231,14 @@ def main():
     qid = 'Q47221'
     table = agent.find_suitable_table(qid=qid, query=query)
     table['question'] = query
-    answer = tableRAG_answer(
-        table=table, 
-        qid=qid,
-        db_dir=f'data/db/wikidata',
-        log_dir='data/logs/wikiqa'
-    )
+    answer = agent.direct_answer(table)
     print(answer)
 
 if __name__ == "__main__":
     qa_path = 'data/CompMix/tableqa_sample.csv'
-    wiki_qa(qa_path=qa_path)
+    save_path = 'data/CompMix/tableqa_sample_with_answer.csv'
+    wiki_qa(
+        qa_path=qa_path,
+        save_path=qa_path
+    )
     # main()

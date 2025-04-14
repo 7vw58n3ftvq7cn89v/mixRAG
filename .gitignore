@@ -6,6 +6,9 @@ data/wikidata/
 data/CompMix-IR/
 data/ktdata/
 data/CompMix/
+data/logs/
+data/db/
+data/output/
 
 local_models/
 db/

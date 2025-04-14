@@ -2,6 +2,7 @@ import json
 import time
 import requests
 from bs4 import BeautifulSoup
+from io import StringIO
 import ollama
 from nano_graphrag._utils import wrap_embedding_func_with_attrs
 # 如果你要使用 GraphRAG/QueryParam，则保留；如果不需要 RAG，可忽略。
@@ -194,28 +195,64 @@ class WikiDataLoader:
         return True
     
     def load_tables_by_pd(self, qid:str):
+
         try:
-            tables = pd.read_html(self.get_url_from_qid(qid))
+            # 1. 获取正确编码的URL
+            url = self.get_url_from_qid(qid)
+                
+            # 2. 发送请求获取HTML内容
+            headers = {
+                'User-Agent': 'Mozilla/5.0',
+                'Accept-Charset': 'utf-8'
+            }
+            response = requests.get(url, headers=headers)
+            response.encoding = 'utf-8'
+            
+            # 3. 使用HTML内容而不是URL来加载表格
+            html_io = StringIO(response.text)
+            tables = pd.read_html(html_io, encoding='utf-8')
+            
+            if not tables:
+                print(f"未找到表格: {qid}")
+                return []
+                
             return tables
+            
         except Exception as e:
-            print(f"No tables for qid: {qid}, error: {e}")
+            print(f"加载表格失败: {qid}, 错误: {e}")
             return []
     
-    def load_single_table(self, qid:str, table_id:int):
+    def load_single_table(self, qid:str, table_id, table_format:str='json'):
+        if isinstance(table_id, str):
+            table_id = int(table_id.split('_')[-1])
         table_path = self.table_path_from_pd.format(qid)
         tables = json.load(open(table_path))
-        return tables[table_id]
+        table = tables[table_id]
+        if table_format == 'json':
+            return table
+        elif table_format == 'md':
+            return self.table_to_md(table)
+        else:
+            raise ValueError(f"Invalid table format: {table_format}")
+    
+    def table_to_md(self, table:dict):
+        """把table转换为md格式"""
+        table_text = table['table_text']
+        # 确保所有单元格都是字符串类型
+        rows = [[str(cell) for cell in row] for row in table_text]
+        return '\n'.join(['|'.join(row) for row in rows])
     
     def get_url_from_qid(self,qid):
         entity_name = self.qid_to_entity_name(qid)
         return self.wikipage_url.format(entity_name)
     
-    def qid_to_entity_name(self,qid:str):
+    def qid_to_entity_name_old(self,qid:str):
         # 如果本地存在，则直接读取
         df = pd.read_csv(self.qid_entity_path)
         if qid in df['qid'].values:
             return df[df['qid'] == qid]['entity'].values[0]
         
+        # 如果本地不存在，则从wikidata.org获取
         response = requests.get(f"https://www.wikidata.org/wiki/{qid}")
         if response.status_code != 200:
             return None
@@ -250,6 +287,40 @@ class WikiDataLoader:
             return name
         
         return None
+    
+    def qid_to_entity_name(self, qid:str):
+        """从qid获取实体名称"""
+        
+        # 如果本地存在，则直接读取
+        df = pd.read_csv(self.qid_entity_path, encoding='utf-8')
+        if qid in df['qid'].values:
+            return df[df['qid'] == qid]['entity'].values[0]
+        
+        # 调用wiki api
+        headers = {
+            'User-Agent': 'Mozilla/5.0',
+            'Accept-Charset': 'utf-8'
+        }
+        response = requests.get(
+            'https://www.wikidata.org/w/api.php',
+            params={
+                'action': 'wbgetentities',
+                'format': 'json',
+                'ids': qid,
+                'props': 'labels',
+            },
+            headers=headers
+        ).json()
+        if response['entities']:
+            name = response['entities'][qid]['labels']['en']['value']
+            name = name.replace(" ", "_")
+            name = name.encode('utf-8').decode('utf-8')
+            df = pd.concat([df, pd.DataFrame({'qid': [qid], 'entity': [name]})])
+            df.to_csv(self.qid_entity_path, index=False, encoding='utf-8')
+            return name
+        else:
+            print(f"No entity name for qid: {qid}")
+            return None
     
     def parse_wikitable(self, table:BeautifulSoup):
         """html中提取表格元素"""
@@ -460,8 +531,11 @@ def main():
     # # infoboxes, wikitables = dataloader.load_tables(qid)
     # text = dataloader.get_wiki_text(qid=qid)
     # print(text)
-    qid = "Q64584978"
-    dataloader.download_tables(qid)
+    qid = "Q907568"
+    _, wikitables = dataloader.load_tables(qid)
+    print(wikitables)
+    entity_name = dataloader.qid_to_entity_name(qid)
+    print(entity_name.encode('utf-8').decode('utf-8'))
     
 
 if __name__ == "__main__":

@@ -13,7 +13,14 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from prompts import tabfact, wtq, arcade, wiki
+# from prompts import tabfact, wtq, arcade, wiki
+
+from . import tabfact, wtq, arcade, wiki
+
+__all__ = [ 
+    'get_prompt', 
+    'get_prompt_simple'
+]
 
 def get_prompt_templates(task, agent_type):
     if task == 'tabfact' and 'TableRAG' in agent_type:
@@ -41,10 +48,12 @@ def get_prompt_templates(task, agent_type):
         }
     elif task in ['arcade', 'bird','qa'] and agent_type in ['PyReAct', 'ReadSchema', 'RandSampling', 'TableSampling']:
         return {'solve_table_prompt': arcade.pyreact_solve_table_prompt}
+    # wiki任务
     elif task == 'wiki':
         return {
             'extract_schema_prompt': wiki.extract_schema_prompt,
             'judge_table_prompt': wiki.judge_table_prompt,
+            'direct_answer_prompt': wiki.direct_answer_prompt,
         }
     else:
         raise NotImplementedError(f"Task {task} and agent type {agent_type} not supported.")

@@ -51,6 +51,8 @@ data type:
     - [x] 搭建schemaDB，每个entity的所有tables
     - [x] Table retrieval的方法:检索schemaDB，判断表格是否可以回答问题
     - [x] answer with table
+  - [ ] 目前是把infobox为答案的问题屏蔽，测试回答，还没跑完实验
+  - [ ] 把infobox和table存储至一起，用于检索
 
 
 如何基于Question找到相关表格？
